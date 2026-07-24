@@ -119,10 +119,6 @@ Applied-Statistical-Inference/
 │
 ├── figures/
 │
-├── data/
-│   ├── raw/
-│   └── processed/
-│
 ├── .gitignore
 └── LICENSE
 ```
@@ -161,6 +157,12 @@ Applied-Statistical-Inference/
 
 ## Author
 
-Maria Murziankova
+**Maria Murziankova**
 
-Bachelor’s student in Economics & Finance with interests in data analytics, econometrics, causal inference, and financial data analysis.
+Economics & Finance Student | Data Analytics | Business Intelligence
+
+[![GitHub](https://img.shields.io/badge/GitHub-murziankovamaria--dotcom-181717?style=for-the-badge&logo=github)](https://github.com/murziankovamaria-dotcom)
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Maria%20Murziankova-0077B5?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/maria-murziankova-004522327/)
+
+[![Tableau Public](https://img.shields.io/badge/Tableau-Public-E97627?style=for-the-badge&logo=tableau)](https://public.tableau.com/app/profile/maria.murziankova/vizzes)
