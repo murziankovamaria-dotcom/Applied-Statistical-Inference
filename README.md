@@ -7,25 +7,20 @@ Applied statistical inference and causal analysis using R. This project demonstr
 This project was completed as part of a university Statistical Inference course and showcases practical applications of econometrics and statistical modeling in R.
 
 The project is divided into two complementary analyses:
-
 * Part I – Cross-Sectional Regression Analysis
     * Investigates factors associated with extramarital affairs using multiple regression techniques.
 * Part II – Causal Inference
     * Estimates the impact of castle doctrine laws on homicide rates using Difference-in-Differences, fixed effects, and event study methods.
-
 The objective is not only to estimate statistical models but also to evaluate model assumptions, perform robustness checks, and interpret results using modern econometric methods.
 
 
 ## Research Questions
-
 Part I – Cross-Sectional Analysis
-
 * How does marital satisfaction affect the number of extramarital affairs?
 * Which demographic and socioeconomic variables are statistically significant predictors?
 * Which regression model provides the best fit for count data?
 
 Part II – Causal Inference
-
 * Did the adoption of castle doctrine laws affect homicide rates?
 * Can the policy impact be identified using Difference-in-Differences?
 * Do the parallel trends assumption and event study support the causal interpretation?
@@ -33,65 +28,62 @@ Part II – Causal Inference
 
 
 ## Methodology
+### Part I – Cross-Sectional Regression Analysis
+- Exploratory Data Analysis (EDA)
+- Descriptive Statistics
+- Correlation Analysis
+- Multiple Linear Regression (OLS)
+- Multicollinearity Assessment (VIF)
+- Heteroskedasticity Testing
+- Robust Standard Errors
+- Influential Observation Analysis (Cook's Distance)
+- Log-Transformed Regression
+- Negative Binomial Regression
 
-#### Part I
-
-* Exploratory Data Analysis (EDA)
-* Descriptive Statistics
-* Correlation Analysis
-* Multiple Linear Regression (OLS)
-* Variance Inflation Factor (VIF)
-* Heteroskedasticity Testing
-* Robust Standard Errors
-* Cook’s Distance (Influential Observations)
-* Log-Transformed Regression
-* Negative Binomial Regression
-
-#### Part II
-
-* Difference-in-Differences (DiD)
-* Two-Way Fixed Effects
-* Clustered Standard Errors
-* Event Study Analysis
-* Dynamic Treatment Effect Estimation
-
-
+### Part II – Causal Inference
+- Difference-in-Differences (DiD)
+- Two-Way Fixed Effects
+- Clustered Standard Errors
+- Event Study Analysis
+- Dynamic Treatment Effect Estimation
 
 ## Datasets
+* affairs (Wooldridge package)
+* castle (causaldata package)
 
-#### Affairs Dataset
+## Results
 
-Source: wooldridge R package
+### Difference-in-Differences
 
-Variables include:
+![Difference-in-Differences](figures/did_plot.png)
 
-* Marital satisfaction
-* Number of extramarital affairs
-* Age
-* Years married
-* Education
-* Religiosity
-* Occupation
-* Children
+The Difference-in-Differences analysis estimates the causal effect of the policy by comparing treated and control groups before and after the intervention.
 
+---
 
+### Event Study
 
-#### Castle Doctrine Dataset
+![Event Study](figures/event_study.png)
 
-Source: causaldata R package
+The Event Study examines treatment effects over time and tests the parallel trends assumption.
 
-Variables include:
+---
 
-* Homicide rates
-* Policy adoption
-* State identifiers
-* Year
-* Treatment indicators
+### Regression Diagnostics
 
+![Regression Diagnostics](figures/regression_diagnostics.png)
 
+Diagnostic tests indicate that the Negative Binomial model provides a better fit for count data than OLS.
+
+---
+
+### Exploratory Data Analysis
+
+![Average Affairs by Age](figures/age_group_affairs.png)
+
+Average reported affairs increase with age until approximately 40–44 years before declining in older groups.
 
 ## Technologies Used
-
 * R
 * R Markdown
 * tidyverse
@@ -108,7 +100,6 @@ Variables include:
 
 
 ## Repository Structure
-
 ```text
 Applied-Statistical-Inference/
 │
@@ -123,8 +114,14 @@ Applied-Statistical-Inference/
 └── LICENSE
 ```
 
-## Key Skills Demonstrated
+## Key Findings
+- Negative Binomial regression fit count data better than OLS.
+- Higher marital satisfaction was associated with fewer reported affairs.
+- Difference-in-Differences estimated the policy effect while controlling for baseline differences.
+- Event study analysis examined treatment dynamics over time.
 
+
+## Key Skills Demonstrated
 * Statistical Inference
 * Applied Econometrics
 * Multiple Linear Regression
@@ -139,7 +136,6 @@ Applied-Statistical-Inference/
 
 
 ## How to Reproduce
-
 1. Clone the repository.
 2. Install the required R packages listed in the report.
 3. Open Statistical_Inference_Report.Rmd in RStudio.
@@ -147,7 +143,6 @@ Applied-Statistical-Inference/
 
 
 ## Project Highlights
-
 * Comprehensive regression diagnostics
 * Robustness checks using heteroskedasticity-consistent standard errors
 * Count-data modeling with Negative Binomial Regression
@@ -155,10 +150,9 @@ Applied-Statistical-Inference/
 * Event study visualization for dynamic treatment effects
 * Fully reproducible analysis using R Markdown
 
+
 ## Author
-
 **Maria Murziankova**
-
 Economics & Finance Student | Data Analytics | Business Intelligence
 
 [![GitHub](https://img.shields.io/badge/GitHub-murziankovamaria--dotcom-181717?style=for-the-badge&logo=github)](https://github.com/murziankovamaria-dotcom)
