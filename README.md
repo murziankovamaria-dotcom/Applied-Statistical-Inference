@@ -53,35 +53,25 @@ Part II – Causal Inference
 
 ## Results
 
-### Difference-in-Differences
+## Difference-in-Differences
+![Difference-in-Differences](figures/did-plot.pdf)
 
-![Difference-in-Differences](figures/did_plot.png)
+The Difference-in-Differences model estimates the average treatment effect of castle doctrine laws on homicide rates by comparing treated and control states before and after policy implementation.
 
-The Difference-in-Differences analysis estimates the causal effect of the policy by comparing treated and control groups before and after the intervention.
+## Event Study
+![Event Study](figures/dynamiceffects-plot.pdf)
 
----
+The Event Study estimates treatment effects over time and provides evidence on the dynamics of the policy impact while helping assess the parallel trends assumption.
 
-### Event Study
 
-![Event Study](figures/event_study.png)
+## Regression Diagnostics
+![Regression Diagnostics](figures/residual-diagnostics.pdf)
+Residual diagnostics were used to assess model assumptions and evaluate goodness of fit.
 
-The Event Study examines treatment effects over time and tests the parallel trends assumption.
 
----
-
-### Regression Diagnostics
-
-![Regression Diagnostics](figures/regression_diagnostics.png)
-
-Diagnostic tests indicate that the Negative Binomial model provides a better fit for count data than OLS.
-
----
-
-### Exploratory Data Analysis
-
-![Average Affairs by Age](figures/age_group_affairs.png)
-
-Average reported affairs increase with age until approximately 40–44 years before declining in older groups.
+## Exploratory Data Analysis
+![Correlation Heatmap](figures/correlation-heatmap.pdf)
+Correlation analysis was performed to explore relationships among explanatory variables prior to model estimation.
 
 ## Technologies Used
 * R
