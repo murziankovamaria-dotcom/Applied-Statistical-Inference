@@ -1,0 +1,45 @@
+# =========================
+# R
+# =========================
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# RStudio project files
+*.Rproj
+
+# =========================
+# macOS
+# =========================
+.DS_Store
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
+*~
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Cache
+# =========================
+.cache/
+__pycache__/
+
+# =========================
+# Environment files
+# =========================
+.env
+Renviron.site
+
+# =========================
+# Output files (optional)
+# Uncomment if you don't want to track generated HTML files
+# =========================
+# *.html

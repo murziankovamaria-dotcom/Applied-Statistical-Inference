@@ -1,0 +1,959 @@
+---
+title: "Regression and Causal Inference"
+author: "Maria Murziankova"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document:
+    mathjax: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+
+# Data
+library(wooldridge)     # affairs dataset (Part 1)
+library(causaldata)     # castle dataset (Part 2)
+
+# Data handling
+library(tidyverse)      # includes dplyr, ggplot2, tidyr
+
+# Modelling & inference
+library(car)            # VIF
+library(lmtest)         # bptest, coeftest
+library(sandwich)       # robust / clustered standard errors (vcovHC, vcovCL)
+library(MASS)           # glm.nb (negative binomial)
+library(broom)          # tidy() for event-study results
+
+# Tables & figures
+library(knitr)          # kable
+library(kableExtra)     # kable_styling
+library(stargazer)      # regression tables
+library(modelsummary)   # negative binomial table
+library(corrplot)       # correlation heatmap
+
+# Load datasets once
+data("affairs")
+data("castle")
+```
+
+# Part 1.Cross-Sectional Analysis Using Regression Techniques
+
+### 1.Data exploration
+
+#### 1.1 Data Description
+
+The analysis uses the affairs dataset from the wooldridge package in R. The dataset contains information on 601 married individuals and includes demographic, socioeconomic, and marital characteristics that may influence involvement in extramarital relationships.
+
+Each observation represents a married individual. The dataset contains 19 variables describing characteristics such as age, education, occupation, religiosity, number of children, years married, and self-reported marital satisfaction.
+
+The dependent variable used in this study is naffairs, which measures the number of extramarital affairs reported by each respondent. The main explanatory variable of interest is ratemarr, a self-reported measure of marital satisfaction ranging from 1 (very dissatisfied) to 5 (very satisfied). Additional variables, including age, years married, education, religiosity, occupation, and presence of children, are considered as potential control variables in the regression analysis.
+
+The dataset is well suited for examining the relationship between marital satisfaction and extramarital behavior because it contains both information on marital quality and a range of demographic characteristics that may influence the outcome of interest.
+
+```{r,fig.align='center'}
+# Manually build a variable dictionary describing each variable used in the analysis
+variable_dictionary <- data.frame(
+  Variable = c(
+    "id", "male", "age", "yrsmarr", "kids",
+    "relig", "educ", "occup", "ratemarr", "naffairs"
+  ),
+  Description = c(
+    "Identifier",
+    "Male = 1",
+    "Age",
+    "Years married",
+    "Has children",
+    "Religiosity (1-5)",
+    "Years of education",
+    "Occupation category (reverse Hollingshead scale)",
+    "Marriage rating (1-5)",
+    "Number of extramarital affairs"
+  )
+)
+kable(variable_dictionary) %>%
+  kable_styling(full_width = FALSE)
+```
+**Table 1.1 Variable Description**
+
+#### 1.2 Summary Statistics
+
+```{r summary-table,fig.align='center'}
+# Descriptive statistics for the main variables, computed individually
+# and assembled into one table
+summary_table <- data.frame(
+  Variable = c(
+    "Number of Affairs", "Marriage Rating", "Age",
+    "Years Married", "Religiosity", "Education"
+  ),
+  N = rep(nrow(affairs), 6),
+  Mean = c(
+    mean(affairs$naffairs), mean(affairs$ratemarr), mean(affairs$age),
+    mean(affairs$yrsmarr),  mean(affairs$relig),    mean(affairs$educ)
+  ),
+  Median = c(
+    median(affairs$naffairs), median(affairs$ratemarr), median(affairs$age),
+    median(affairs$yrsmarr),  median(affairs$relig),    median(affairs$educ)
+  ),
+  SD = c(
+    sd(affairs$naffairs), sd(affairs$ratemarr), sd(affairs$age),
+    sd(affairs$yrsmarr),  sd(affairs$relig),    sd(affairs$educ)
+  ),
+  Min = c(
+    min(affairs$naffairs), min(affairs$ratemarr), min(affairs$age),
+    min(affairs$yrsmarr),  min(affairs$relig),    min(affairs$educ)
+  ),
+  Max = c(
+    max(affairs$naffairs), max(affairs$ratemarr), max(affairs$age),
+    max(affairs$yrsmarr),  max(affairs$relig),    max(affairs$educ)
+  )
+)
+
+# Round everything except the Variable column to 2 decimals
+summary_table[, -1] <- round(summary_table[, -1], 2)
+
+kable(summary_table)
+```
+
+**Table 1.2 Descriptive Statistics**
+
+Table 1.2 presents descriptive statistics for the main variables used in the analysis. The sample consists of 601 married individuals. On average, respondents reported 1.46 extramarital affairs, although the median value is zero, indicating that most individuals reported no affairs. The average marriage rating is 3.93 on a five-point scale, suggesting relatively high marital satisfaction. Respondents are on average 32.5 years old and have been married for approximately 8.2 years. The average religiosity score is 3.12, while the average education level is 16.17 years of schooling.
+
+Additional exploratory analysis revealed only minor differences between men and women in both marital satisfaction and the reported number of extramarital affairs. The average marital satisfaction score was 3.94 for women and 3.92 for men, while the average number of affairs was 1.42 and 1.50, respectively. These differences are very small and do not suggest substantial gender differences within the sample.
+
+#### 1.3 Missing Value Analysis
+
+The dataset contains no missing observations in any of the variables used in the analysis. Consequently, no data cleaning procedures such as listwise deletion or imputation were required.
+
+#### 1.4 Distribution and Outliers of Number of Affairs
+
+```{r histogram-affairs, fig.height=4, fig.width=6,fig.align='center'}
+# Histogram of the dependent variable to show its right-skewed, zero-heavy distribution
+ggplot(affairs, aes(x = naffairs)) +
+  geom_histogram(bins = 15, fill = "#FFD1DC", color = "black") +
+  labs(x = "Number of Affairs", y = "Frequency") +
+  theme_minimal()
+```
+**Figure1.1 Distribution of Extramarital Affair**
+
+The distribution of the dependent variable is highly concentrated at zero, with most respondents reporting no extramarital affairs. At the same time, a small number of observations report substantially higher values, resulting in a strongly right-skewed distribution. This pattern suggests that the number of affairs is not normally distributed and that a few observations may have a noticeable influence on the overall distribution. Because the variable represents count data, the results should be interpreted with this distributional characteristic in mind. To ensure that the main findings are not driven by the choice of estimation method, a robustness check using a negative binomial model is presented later in the analysis.
+
+```{r, fig.height=4, fig.width=6,fig.align='center'}
+# Boxplot of affairs across marriage-rating levels, to show the negative association
+ggplot(affairs, aes(x = factor(ratemarr), y = naffairs)) +
+  geom_boxplot(fill = "#FFD1DC", color = "#C71585") +
+  labs(x = "Marriage Rating", y = "Number of Affairs") +
+  theme_minimal()
+```
+**Figure 1.2 Extramarital Affairs by Marriage Rating**
+
+Figure 1.2 examines the relationship between marital satisfaction and extramarital affairs. A clear negative association is observed: respondents with lower marriage ratings tend to report more affairs, whereas those with higher marriage ratings generally report few or no affairs. This preliminary evidence is consistent with the hypothesis that greater marital satisfaction is associated with a lower incidence of extramarital relationships. The relationship will be examined more formally in the regression analysis.
+
+#### 1.5 Distribution of Marital Satisfaction
+
+```{r barplot-marriage, fig.height=4, fig.width=6,fig.align='center'}
+# Bar chart showing how marriage ratings (1-5) are distributed across respondents
+ggplot(affairs, aes(x = factor(ratemarr))) +
+  geom_bar(fill = "#F8BBD0", color = "black") +
+  labs(x = "Marriage Rating", y = "Count") +
+  theme_minimal()
+```
+**Figure 1.3 Distribution of Marital Satisfaction**
+
+Figure 1.3 shows the distribution of marital satisfaction among respondents. Most individuals report relatively high levels of marital satisfaction, with ratings of 4 and 5 being substantially more common than lower ratings. This suggests that the sample is generally characterized by positive evaluations of marriage, although there remains sufficient variation in marital satisfaction to investigate its relationship with extramarital affairs.
+
+#### 1.6 Relationship Between Marital Satisfaction and Affairs
+
+```{r mean-plot,fig.height=5, fig.width=7,fig.align='center'}
+# Average number of affairs at each marriage-rating level
+affairs %>%
+  group_by(ratemarr) %>%
+  summarise(mean_affairs = mean(naffairs)) %>%
+  # group = 1 tells ggplot to join the points into a single line across categories
+  ggplot(aes(x = factor(ratemarr), y = mean_affairs, group = 1)) +
+  geom_line(color = "#C2185B", linewidth = 1.2) +
+  geom_point(size = 3, color = "#C2185B") +
+  labs(x = "Marriage Rating", y = "Average Number of Affairs") +
+  theme_minimal()
+```
+**Figure 1.4 Average Number of Affairs by Marriage Rating**
+
+Figure 1.4 presents the average number of extramarital affairs across different levels of marital satisfaction. A clear negative relationship emerges: respondents reporting lower marriage ratings exhibit substantially higher average numbers of affairs, while those reporting greater marital satisfaction tend to have fewer affairs. The decline is particularly pronounced between satisfaction ratings of 2 and 3, suggesting that increases in marital satisfaction may be associated with meaningful reductions in extramarital behavior. Although this pattern provides preliminary support for the study hypothesis, it is based on unconditional averages and does not account for other factors that may influence the outcome. Therefore, regression analysis is required to determine whether the relationship remains significant after controlling for relevant demographic and socioeconomic characteristics.
+
+
+```{r, fig.height=5, fig.width=7,fig.align='center'}
+# Average number of affairs by age group.
+# cut() bins the continuous age variable into ranges so the average can be
+# plotted per group (rather than one noisy point per single age).
+affairs %>%
+  mutate(age_group = cut(age,
+                         breaks = c(0, 25, 30, 35, 40, 45, 50, Inf),
+                         labels = c("<25","25-29","30-34","35-39",
+                                    "40-44","45-49","50+"))) %>%
+  group_by(age_group) %>%
+  summarise(mean_affairs = mean(naffairs), n = n()) %>% #n = n() ounts how many people are in each age band
+  ggplot(aes(x = age_group, y = mean_affairs, group = 1)) +
+  geom_line(color = "#C2185B", linewidth = 1.2) +
+  geom_point(size = 3, color = "#C2185B") +
+  labs(x = "Age Group", y = "Average Number of Affairs") +
+  theme_minimal()
+```
+**Figure 1.5 Average Number of Affairs by Age Group**
+
+Figure 1.5 demonstrates that the average of affairs rises from the late twenties to a peak around the early forties before declining, an inverted-U pattern that motivates the quadratic age term examined in Section 4.
+
+
+#### 1.7 Correlation Analysis
+
+```{r correlation-heatmap, fig.height=6, fig.width=7,fig.align='center'}
+# Correlation matrix of the main numeric variables
+correlation_matrix <- cor(
+  affairs[, c("naffairs", "ratemarr", "age", "yrsmarr", "relig", "educ")]
+)
+
+# Visualise it as a lower-triangle heatmap with the correlation values shown
+corrplot(
+  correlation_matrix,
+  method      = "square",
+  type        = "lower",      # show only the lower triangle (avoids duplicating values)
+  diag        = FALSE,        # hide the trivial diagonal (variable correlated with itself = 1)
+  addCoef.col = "black",      # print the correlation numbers on the squares
+  tl.col      = "black",
+  tl.srt      = 0,
+  col = colorRampPalette(c("#FCE4EC", "#FFFFFF", "#C2185B"))(200)  # custom pink colour scale
+)
+```
+
+**Figure 1.6 Correlation Analysis**
+
+Figure 1.6 presents the correlation matrix for the main variables used in the analysis. The number of extramarital affairs is negatively correlated with marital satisfaction (r = -0.28), suggesting that individuals who report higher levels of marital satisfaction tend to report fewer affairs. A strong positive correlation is observed between age and years married (r = 0.78), indicating that these variables capture related aspects of respondents’ life cycles and may warrant further examination in the regression analysis. The remaining correlations are relatively weak, suggesting limited linear association among the other variables.
+
+#### 1.8 Multicollinearity Diagnostics
+
+```{r vif-table}
+# Check for multicollinearity among the predictors using Variance Inflation Factors
+vif_model <- lm(
+  naffairs ~ ratemarr + age + yrsmarr + relig + kids + educ,
+  data = affairs
+)
+
+vif_values <- vif(vif_model)
+
+# Put the VIFs into a tidy table for display
+vif_table <- data.frame(
+  Variable = names(vif_values),
+  VIF = round(as.numeric(vif_values), 3)
+)
+
+kable(vif_table)
+```
+**Table 1.3 Variance Inflation Factors (VIF)**
+
+To assess potential multicollinearity among the explanatory variables, Variance Inflation Factors (VIFs) were calculated. The highest VIF values were observed for years married (VIF = 3.18) and age (VIF = 2.62), which is consistent with the relatively strong positive correlation between these variables identified in the correlation analysis.
+
+However, all VIF values remain well below conventional thresholds used to indicate problematic multicollinearity. Therefore, multicollinearity is unlikely to materially affect coefficient estimation or statistical inference in the regression models. Therefore, all explanatory variables are retained in the regression analysis, as multicollinearity is unlikely to substantially affect the reliability of the estimated coefficients.
+
+
+### 2. Research Question and Hypotheses
+
+The objective of this study is to investigate whether marital satisfaction is associated with the number of extramarital affairs among married individuals. The main research question is:
+
+**Is marital satisfaction associated with the number of extramarital affairs among married individuals?**
+
+This question is motivated by the economic model of extramarital relationships developed by Fair (1978). In this framework, individuals allocate their time across work, family activities, and other personal relationships in a way that maximizes overall utility. Marriage provides benefits such as companionship, emotional support, trust, and shared household production. When individuals derive high levels of satisfaction from their marriage, the benefits of maintaining the relationship are greater, reducing the incentive to seek alternative relationships. Conversely, lower marital satisfaction reduces the utility obtained from marriage and may increase the attractiveness of relationships outside the marriage.
+
+Based on this theoretical reasoning, a negative relationship between marital satisfaction and the number of extramarital affairs is expected. However, other factors such as age, years married, religiosity, education, and the presence of children may also influence individual behavior. Therefore, these variables will be included as controls in the empirical analysis.
+
+The following hypotheses are tested:
+
+
+<center> **Null hypothesis (H₀): β₁ = 0**  </center>
+<center> Marital satisfaction has no statistically significant association with the number of extramarital affairs.</center>
+
+<center> **Alternative hypothesis (H₁): β₁ < 0**  </center>
+<center> Higher marital satisfaction is associated with a lower number of extramarital affairs.</center>
+
+The empirical analysis will estimate the relationship between marital satisfaction and extramarital affairs using Ordinary Least Squares (OLS) regression while controlling for relevant demographic and socioeconomic characteristics.
+
+
+### 3. Model Specification
+
+The **dependent variable is naffairs**, which measures the number of extramarital affairs reported by an individual. This variable represents the primary outcome of interest in the study and is used to examine how marital satisfaction and other personal characteristics are associated with involvement in extramarital relationships. naffairs is not a continuous variable in the strict sense: it is a recoded count that takes only a handful of discrete values (0, 1, 2, 3, 7, and 12), with a large mass at zero. Ordinary least squares is therefore not the textbook-ideal estimator. We nonetheless use OLS as our main specification because the research question concerns the linear association between marital satisfaction and affairs, and because OLS coefficients have a transparent, directly interpretable meaning. To ensure that this functional-form choice does not drive our conclusions, we re-estimate the main specification with a negative binomial model (Table 1.9), which respects the count nature of the outcome, and with a log transformation (Table 1.8), which both confirm the OLS findings.
+
+The **main explanatory variable is ratemarr**, which measures marital satisfaction on a scale from 1 (very unhappy marriage) to 5 (very happy marriage). This variable is central to the research question because marital satisfaction reflects the perceived quality and stability of a marriage. Economic and sociological theories suggest that individuals who derive greater satisfaction from their marriage have fewer incentives to seek relationships outside the marriage. Therefore, a negative relationship between marital satisfaction and the number of extramarital affairs is expected.
+
+**Control Variables**
+
+Age may also influence extramarital behavior. Older individuals may have fewer opportunities or incentives to engage in affairs and may place greater value on marital stability. In addition, social networks and lifestyle patterns often change over the life cycle, potentially reducing opportunities for extramarital relationships. Therefore, the expected relationship between age and affairs is negative.
+
+The number of years married may affect the likelihood of extramarital affairs in either direction. On the one hand, longer marriages may be associated with stronger commitment and accumulated relationship-specific investments, reducing incentives for infidelity. On the other hand, longer marriages may also experience declining relationship satisfaction or greater routine, potentially increasing the attractiveness of alternative relationships. For this reason, the expected effect of years married is theoretically ambiguous and should be determined empirically.
+
+Religiosity is included as an important control variable because religious beliefs often promote marital commitment and discourage behavior that violates marital norms. More religious individuals may therefore face greater moral and social costs from engaging in extramarital relationships. As a result, a negative relationship between religiosity and the frequency of affairs is expected.
+
+Individuals with children may face greater social, emotional, and family costs from engaging in extramarital affairs. Consequently, having children is expected to be associated with fewer affairs.
+
+Education may influence social attitudes, lifestyle choices, and opportunity costs. However, economic theory does not provide a clear prediction regarding the direction of this relationship. Therefore, the expected effect of education is ambiguous.
+
+Finally, occupation may affect social interactions, workplace environments, income levels, and opportunities to form relationships outside marriage. Since occupation is measured as a categorical variable, it will be included as a set of indicator variables in the extended specification.
+
+
+| Variable | Expected Effect on Number of Affairs |
+|-----------|-----------|
+| Marital Satisfaction (ratemarr) | Negative (-) |
+| Age (age) | Negative (-) |
+| Years Married (yrsmarr) | Ambiguous (+/-) |
+| Religiosity (relig) | Negative (-) |
+| Children (kids) | Negative (-) |
+| Education (educ) | Ambiguous (+/-) |
+
+**Table 1.4 Expected Coefficient Signs**
+
+**Baseline Model**
+
+The baseline regression model is:
+
+$$
+naffairs_i =
+\beta_0 +
+\beta_1 ratemarr_i +
+u_i
+$$
+
+where u_i represents unobserved factors affecting the number of extramarital affairs.
+
+**Extended Model**
+
+To account for demographic and socioeconomic characteristics, the following specification is estimated:
+
+$$
+naffairs_i =
+\beta_0 +
+\beta_1 ratemarr_i +
+\beta_2 age_i +
+\beta_3 yrsmarr_i +
+\beta_4 relig_i +
+\beta_5 kids_i +
+\beta_6 educ_i +
+u_i
+$$
+
+This model controls for factors that may influence both marital satisfaction and extramarital behaviour.
+
+**Nonlinearities**
+
+The relationship between age and extramarital affairs may not be linear. Younger and older individuals may exhibit different behavioral patterns, implying that the effect of age may vary across the life cycle.
+
+To examine this possibility, a quadratic age term will be included:
+
+$$
+naffairs_i =
+\beta_0 +
+\beta_1 ratemarr_i +
+\beta_2 age_i +
+\beta_3 age_i^2 +
+\beta_4 yrsmarr_i +
+\beta_5 relig_i +
+\beta_6 kids_i +
+\beta_7 educ_i +
+u_i
+$$
+
+A statistically significant coefficient on age^2 would indicate a nonlinear relationship between age and the number of affairs.
+
+**Interaction Effects**
+
+The effect of marital satisfaction on extramarital affairs may not be the same for everyone. One factor that could influence this relationship is religiosity. Individuals with stronger religious beliefs may be less likely to engage in extramarital affairs, even when they are dissatisfied with their marriage. To examine this possibility, an interaction term between marital satisfaction and religiosity is added to the model:
+
+$$
+naffairs_i =
+\beta_0 +
+\beta_1 ratemarr_i +
+\beta_2 relig_i +
+\beta_3(ratemarr_i \times relig_i) +
+u_i
+$$
+The interaction term allows us to test whether the relationship between marital satisfaction and the number of extramarital affairs changes across different levels of religiosity. If the interaction coefficient is statistically significant, it would suggest that the effect of marital satisfaction depends on how religious an individual is. If it is not significant, the relationship can be considered relatively similar across different levels of religiosity.
+
+
+### 4. Regression Analysis
+
+To examine the relationship between marital satisfaction and extramarital affairs, a series of Ordinary Least Squares (OLS) regression models are estimated. The dependent variable in all specifications is the number of extramarital affairs (naffairs), while marital satisfaction (ratemarr) serves as the primary explanatory variable.
+
+The analysis begins with a baseline model containing only marital satisfaction and then progressively introduces demographic and socioeconomic control variables. Additional specifications incorporate nonlinear and interaction effects to evaluate whether the estimated relationship remains robust under alternative model assumptions.
+
+
+```{r ols-models}
+# Five OLS specifications, building up from a simple baseline to interactions
+
+# M1: baseline — satisfaction only
+model1 <- lm(naffairs ~ ratemarr, data = affairs)
+
+# M2: add demographic and socioeconomic controls
+model2 <- lm(naffairs ~ ratemarr + age + yrsmarr + relig + kids + educ,
+             data = affairs)
+
+# M3: add a quadratic term in age to test for nonlinearity
+model3 <- lm(naffairs ~ ratemarr + age + yrsmarr + I(age^2) +
+               relig + kids + educ,
+             data = affairs)
+
+# M4: interaction between satisfaction and religiosity
+model4 <- lm(naffairs ~ ratemarr * relig + age + yrsmarr + kids + educ,
+             data = affairs)
+
+# M5: interaction between satisfaction and years married, plus occupation dummies
+model5 <- lm(naffairs ~ ratemarr * yrsmarr + age + relig + kids + educ +
+               factor(occup),
+             data = affairs)
+```
+
+```{r regression-table,results='asis'}
+# Compute heteroskedasticity-robust (HC1) standard errors for each model.
+# For each model we extract the robust variance matrix (vcovHC) and take the
+# square root of its diagonal, which gives the robust SE for every coefficient.
+cat('<div style="width:100%; display:flex; justify-content:center;">')
+robust_se <- lapply(
+  list(model1, model2, model3, model4, model5),
+  function(m) sqrt(diag(vcovHC(m, type = "HC1")))
+)
+
+stargazer(
+  model1, model2, model3, model4, model5,
+  type           = "html",
+  se             = robust_se,                  # use the robust SEs instead of the default ones
+  dep.var.labels = "Number of Affairs",
+  column.labels  = c("M1", "M2", "M3", "M4", "M5"),
+  covariate.labels = c(
+    "Satisfaction", "Age", "Years married", "Age²",
+    "Religiosity", "Children", "Education",
+    "Sat. × Relig.", "Sat. × Years"
+  ),
+  omit       = "factor\\(occup\\)",            # hide the occupation dummies from the table
+  add.lines  = list(c("Occupation dummies", "No", "No", "No", "No", "Yes")),
+  omit.stat  = c("ser", "f"),                  # drop residual SE and F-stat rows
+  digits     = 3,
+  notes        = "Heteroskedasticity-robust (HC1) standard errors in parentheses.",
+  notes.append = TRUE,
+  out.header   = FALSE
+)
+cat('</div>')
+```
+
+**Table 1.5 Comparison of OLS Regression Models**
+
+**M1 = Baseline model, M2 = Controls, M3 = Quadratic specification, M4 = Satisfaction × Religiosity, M5 = Satisfaction × Years Married**
+
+
+Table 1.5 reports five OLS specifications with heteroskedasticity-robust (HC1) standard errors. Marital satisfaction is negative throughout. In the baseline (M1) and the controlled model (M2) it is large and highly significant (−0.84 and −0.72, p < 0.01); adding controls barely changes it, so the association is not an artefact of demographics. The quadratic term for age (M3) is insignificant, giving no evidence of nonlinearity.
+Among controls, religiosity and years married are the consistent predictors: more religious respondents report fewer affairs, while longer marriages are associated with more, matching the expectations we set prior. Age is weakly negative and children and education are insignificant throughout.
+In the interaction models the satisfaction coefficient is a conditional effect — its value when the moderator equals zero — and so is not directly comparable to M1–M2. The satisfaction × religiosity term (M4) is insignificant, but satisfaction × years married (M5) is negative and significant (−0.049, p < 0.05): the protective effect of satisfaction strengthens the longer a couple has been married. Explanatory power stays modest, with adjusted R² rising from 0.08 to 0.12, so most variation in affairs remains unexplained.
+
+
+Overall, the results provide consistent evidence that marital satisfaction is negatively associated with the number of extramarital affairs, and this association is robust to demographic and socioeconomic controls and to alternative specifications. We find little evidence of nonlinearity or of moderation by religiosity; the one exception is the negative satisfaction × years-married interaction, which tentatively suggests the association strengthens in longer marriages, though it rests on a single specification. Because the analysis is observational, these findings should be read as a robust association rather than a causal effect: respondents reporting higher marital satisfaction tend to report fewer affairs.
+
+```{r residual-diagnostics,fig.width=8, fig.height=8}
+# Show the four standard regression diagnostic plots for Model 2 in a 2x2 grid
+par(mfrow = c(2, 2))   # arrange the next plots in 2 rows x 2 columns
+plot(model2)           # base R automatically produces the 4 lm diagnostic plots
+```
+
+**Figure 1.7 Residual Diagnostics**
+
+Figure 1.7 shows four standard diagnostic plots for the main specification (Model 2).
+
+The residuals-vs-fitted plot (top left) checks whether the model's errors are centred on zero and evenly spread. Here the points fall along several parallel diagonal lines rather than a shapeless cloud. This happens because the number of affairs only takes a few whole-number values, so for each possible count the residuals line up. The spread of the points also widens as the fitted values increase, a first sign that the error variance is not constant.
+
+The scale-location plot (bottom left) makes that last point easier to see: it plots the size of the residuals against the fitted values, so a flat band would mean constant variance. Instead the red line slopes clearly upward, meaning larger predictions come with larger errors. This is heteroskedasticity, which the Breusch–Pagan test below confirms formally.
+
+The normal Q-Q plot (top right) checks whether the residuals are normally distributed by comparing them to a straight reference line. The points follow the line in the middle but bend sharply upward in the top-right corner, so the residuals have a much longer right tail than a normal distribution would. This is expected: most respondents report zero affairs while a few report many. It is the main reason we also estimate the log and negative-binomial models (Tables 1.8 and 1.9).
+
+The residuals-vs-leverage plot (bottom right) is used to spot single observations that have an unusually strong influence on the estimated coefficients; such points would sit beyond the dashed "Cook's distance" line. A few observations are labelled (49, 497, 542), but they all stay well inside that boundary, so no individual respondent is driving the results and we keep the full sample.
+
+Overall, the constant-variance and normality assumptions are not fully met. This is why the standard errors in Table 1.5 are robust rather than classical, and why the skewed, count nature of the outcome is dealt with through the robustness checks rather than ignored.
+
+
+<div align="center">
+```{r}
+# Breusch-Pagan test for heteroskedasticity on Model 2
+bp <- bptest(model2)
+
+# Pull the test statistic, degrees of freedom, and p-value into a tidy table
+bp_tab <- data.frame(
+  Statistic = round(unname(bp$statistic), 2),
+  df        = unname(bp$parameter),
+  `p-value` = format.pval(bp$p.value, digits = 3, eps = 0.001),
+  check.names = FALSE
+)
+kable(bp_tab)
+```
+</div>
+**Table 1.6 Breusch-Pagan test**
+
+The diagnostic plots suggest the errors do not have constant variance, but a plot alone is a judgement call. The Breusch–Pagan test puts a number on it: it formally tests the null hypothesis that the error variance is constant (homoskedasticity) against the alternative that it changes with the explanatory variables (heteroskedasticity). A small p-value means we reject the idea of constant variance. Here the test rejects it strongly (BP = 54.12, df = 6, p < 0.001), confirming what the residual plots showed. To deal with this, all standard errors in Table 1.5 are heteroskedasticity-robust (HC1), so the significance levels reported there remain valid even though the constant-variance assumption fails.
+
+
+
+```{r outlier-sensitivity}
+# Sensitivity check: does dropping influential observations change the result?
+
+# Cook's distance measures how much each observation influences the fitted model
+cd        <- cooks.distance(model2)
+threshold <- 4 / nrow(affairs)        # common "4/n" cutoff for flagging influential points
+n_removed <- sum(cd >= threshold)     # how many observations exceed the cutoff
+affairs_trim <- affairs[cd < threshold, ]   # keep only the non-influential observations
+
+# Re-estimate Model 2 on the trimmed sample
+model2_trim <- lm(naffairs ~ ratemarr + age + yrsmarr + relig + kids + educ,
+                  data = affairs_trim)
+
+# Robust (HC1) SEs; pull out just the row for the satisfaction coefficient
+full_rob <- coeftest(model2,      vcov = vcovHC(model2,      type = "HC1"))["ratemarr", ]
+trim_rob <- coeftest(model2_trim, vcov = vcovHC(model2_trim, type = "HC1"))["ratemarr", ]
+
+# Compare the satisfaction coefficient across the full and trimmed samples
+sens_tab <- data.frame(
+  Sample      = c("Full sample", "Excluding influential obs."),
+  N           = c(nrow(affairs), nrow(affairs_trim)),
+  Coefficient = round(c(full_rob["Estimate"],   trim_rob["Estimate"]),   3),
+  `Robust SE` = round(c(full_rob["Std. Error"], trim_rob["Std. Error"]), 3),
+  `p-value`   = format.pval(c(full_rob["Pr(>|t|)"], trim_rob["Pr(>|t|)"]),
+                            digits = 3, eps = 0.001),
+  check.names = FALSE
+)
+
+kable(sens_tab)
+```
+**Table 1.7 Sensitivity of the Satisfaction Coefficient to Influential Observations**
+
+As a sensitivity check, we re-estimated Model 2 after removing the 41 observations with the highest Cook's distance (above the 4/n threshold). Table 1.7 shows that the coefficient on marital satisfaction remains negative and highly significant, so the direction of the relationship is robust. Its magnitude, however, falls substantially (from −0.720 to −0.321) once these influential respondents are excluded. This indicates that part of the size of the OLS estimate is driven by a small group of individuals reporting many affairs — the same long right tail visible in the residual plots. It reinforces our earlier caution about applying OLS to a skewed count outcome and is consistent with the negative-binomial results (Table 1.9), which are far less sensitive to such extreme values.
+
+
+```{r log-model}
+# Robustness check: re-estimate the main specification with a log-transformed outcome.
+# log(naffairs + 1) is used because many respondents report zero affairs and log(0)
+# is undefined; adding 1 keeps those observations and compresses the right skew.
+affairs$log_affairs <- log(affairs$naffairs + 1)
+log_model <- lm(
+  log_affairs ~ ratemarr + age + yrsmarr + relig + kids + educ,
+  data = affairs
+)
+```
+
+
+<div align="center">
+
+```{r log-model-table,results='asis'}
+# Regression table for the log-outcome robustness check
+stargazer(
+  log_model,
+  type           = "html",
+  dep.var.labels = "Log(Number of Affairs + 1)",
+  digits         = 3,
+  out.header     = FALSE
+)
+```
+
+</div>
+
+**Table 1.8 Robustness Check: Logarithmic Transformation**
+
+Because the number of affairs is highly right-skewed, with many respondents reporting zero affairs and a small number reporting relatively large values, an additional specification was estimated using the logarithm of the dependent variable: 	Log(Number of Affairs+1).
+
+The logarithmic transformation reduces the influence of extreme observations and helps address the non-normality of the residuals observed in the baseline model.
+
+The coefficient on marital satisfaction remains negative and highly statistically significant ($\beta$=-0.186, p<0.01). This indicates that individuals reporting higher levels of marital satisfaction tend to engage in fewer extramarital affairs, even after reducing the influence of extreme observations through the logarithmic transformation.
+
+The coefficients on age and years married are also statistically significant. Older individuals report fewer affairs, while individuals who have been married longer tend to report more affairs.
+
+Overall, the results are qualitatively similar to those obtained from the baseline specification. This consistency suggests that the main findings are robust and are not driven solely by a small number of respondents reporting unusually high numbers of affairs.
+
+```{r modelsummary_nb}
+# Robustness check: negative binomial model, appropriate for a count outcome
+# with overdispersion and many zeros. Called as MASS:: to avoid masking dplyr::select.
+nb_model <- MASS::glm.nb(
+  naffairs ~ ratemarr + age + yrsmarr + relig + kids + educ,
+  data = affairs
+)
+
+nb_b <- coef(nb_model)["ratemarr"]   # store satisfaction coefficient for inline reference
+
+# Compare OLS and negative binomial side by side, showing only the satisfaction coefficient
+modelsummary(
+  list("OLS (Model 2)" = model2, "Neg. Binomial" = nb_model),
+  coef_map = c("ratemarr" = "Marital Satisfaction"),  # rename and keep only this coefficient
+  stars    = TRUE,                                     # show significance stars
+  gof_omit = ".*"                                      # hide all goodness-of-fit rows
+)
+```
+**Table 1.9 Robustness Check: Negative Binomial Specification**
+
+Because the number of affairs is a non-negative count with a large share of zeros rather than a truly continuous variable, ordinary least squares is not the textbook-ideal estimator. To check that this does not drive our findings, we re-estimate the main specification (Model 2) using a negative binomial model, which is designed for over-dispersed count outcomes. Because this model uses a logarithmic link, the coefficients are not directly comparable in magnitude to the OLS estimates, so only the sign and statistical significance can be compared across the two columns. The coefficient on marital satisfaction remains negative and statistically significant ($\beta = -0.419$, p < 0.001), confirming that respondents reporting higher marital satisfaction engage in fewer affairs. Since the central result holds under an estimator that respects the count nature of the outcome, we are confident the OLS estimates reflect a genuine association rather than an artefact of the linear functional form.
+
+### 5. Discussion and Validity
+The empirical analysis consistently finds a negative association between marital satisfaction and the number of extramarital affairs. Across all model specifications, individuals reporting higher levels of marital satisfaction tend to report fewer affairs. The results remain broadly stable after the inclusion of demographic controls, nonlinear terms, interaction effects, and occupation categories, suggesting that the main finding is not sensitive to the choice of specification.
+
+However, the estimated coefficients should be interpreted as associations rather than causal effects. Although the analysis controls for several observable characteristics, important threats to internal and external validity remain.
+
+One potential threat to internal validity is omitted variable bias. Important factors affecting both marital satisfaction and extramarital affairs may not be observed in the dataset, such as personality traits, communication quality between spouses, and relationship quality before marriage. If such variables are correlated with both marital satisfaction and the likelihood of engaging in extramarital affairs, the estimated coefficients may be biased.
+
+Reverse causality is another concern. While the analysis assumes that marital satisfaction influences the number of extramarital affairs, the opposite relationship may also exist. Individuals who engage in extramarital affairs may subsequently report lower levels of marital satisfaction because affairs can create conflict, reduce trust, and weaken relationship quality. Consequently, the observed relationship may reflect both the effect of marital satisfaction on affairs and the effect of affairs on marital satisfaction. Because the data are cross-sectional and measure both variables at approximately the same point in time, it is difficult to determine the direction of causality.
+
+Another limitation concerns the nature of the dependent variable. The variable naffairs measures the number of extramarital affairs and is therefore a count variable with a large proportion of zero observations and a highly skewed distribution. As a result, OLS estimates should be interpreted cautiously. Alternative count-data models, such as Poisson or Negative Binomial regression, may provide a better representation of the underlying data-generating process. We therefore re-estimated the main specification as a negative binomial model (Table 1.9); the negative and significant effect of marital satisfaction is unchanged, so our OLS conclusions are not an artefact of the linear functional form.
+
+Measurement error may also affect the results. Both the number of extramarital affairs and marital satisfaction are self-reported measures. Respondents may underreport extramarital affairs due to social desirability bias, embarrassment, or concerns about privacy. Similarly, marital satisfaction is inherently subjective and may be influenced by temporary emotions or individual perceptions. If reporting errors are systematic, the estimated coefficients may be biased. If they are random, they may weaken the observed relationship and reduce the precision of the estimates.
+
+The sample consists only of married individuals included in the survey. As a result, the findings may not generalize to unmarried individuals, cohabiting couples, or individuals in different cultural and institutional settings where attitudes toward marriage and extramarital relationships may differ substantially. Individuals who are divorced, separated, or unwilling to participate are not represented. Consequently, the sample may not fully reflect the broader population of individuals who have experienced marital relationships.
+
+The dataset is also based on a sample of married individuals in the United States during the 1970s. Social norms, family structures, gender roles, and attitudes toward marriage have changed substantially since that time. Therefore, the magnitude of the estimated relationships may differ in modern populations.
+
+Even granting these limitations, the negative association lines up with what Fair's framework predicts and survives every robustness check we ran, so we doubt it is purely because of the sample. Still, because of possible omitted variables, reverse causality, measurement error, and sample selection, the estimates should be read as a robust correlation rather than a causal effect — which is precisely the gap that the panel design in Part II is meant to address.
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+
+# Part 2. Causal analysis
+
+### 1. Research Question and Treatment Definition
+
+The analysis uses a panel of U.S. states observed over multiple years, which allows homicide outcomes to be compared across states and over time, before and after policy adoption. The central research question is:
+
+**What is the causal effect of Castle Doctrine laws on homicide rates?**
+
+Theory does not pin down the sign, which is why an empirical answer is needed in the first place. Supporters argue that stronger self-defense protections deter violent crime by raising its expected cost, while critics argue that the same laws lower the threshold for using lethal force and so increase violence. The net effect cannot be signed in advance.
+
+The outcome variable is the homicide rate, and the analysis uses its logarithm (l_homicide) as the dependent variable so that effects can be read in approximate percentage terms. The treatment variable is a binary indicator equal to one for state-year observations in which a Castle Doctrine law is in effect, and zero otherwise. The treatment group is the states that adopted such a law during the sample period; the control group is the states that never adopted one. Crucially, adoption was staggered — states passed these laws in different years — so the data contain both cross-sectional and over-time variation, and there is no single common adoption date.
+
+The parameter of interest is the Average Treatment Effect on the Treated (ATT): how homicide rates in adopting states changed relative to how they would have evolved had the law not been passed. The central difficulty is that this counterfactual is never observed — for a treated state we see outcomes after adoption, but not what they would have been without it. Estimating a causal effect therefore requires constructing a credible stand-in for that missing counterfactual.
+
+A simple comparison of adopting and non-adopting states will not do this, because adoption was not random: states that pass Castle Doctrine laws may differ systematically in crime trends, demographics, economic conditions, political preferences, and criminal-justice institutions. To address this, the analysis uses a Difference-in-Differences (DiD) framework, which compares the change in homicide rates in adopting states with the contemporaneous change in non-adopting states. By differencing over time, DiD removes any fixed differences between states and any shocks common to all of them. Under the Parallel Trends Assumption — that treated and control states would have followed similar homicide trends absent the policy — this comparison identifies the causal effect.
+
+### 2. Identification Strategy
+
+Having defined the causal question, this section sets out the identification strategy and the assumptions it relies on. As noted above, the difficulty is that adoption was not random, so the Difference-in-Differences framework is used to compare the change in homicide rates in adopting states with the contemporaneous change in non-adopting states. Differencing over time removes any time-invariant differences between states and any shocks common to all of them; identification then rests on two assumptions.
+
+The first and central assumption is Parallel Trends: absent the policy, treated and control states would have followed similar homicide trends. If this holds, the post-adoption difference in changes can be attributed to the law rather than to pre-existing differences between the groups. Parallel trends cannot be tested directly, since the counterfactual is unobserved, but it can be assessed indirectly — through the trends plot in the previous section and, more formally, through the event-study estimates, where similar pre-treatment paths and statistically insignificant lead coefficients would support its plausibility.
+
+The second assumption is no anticipation: states (and individuals within them) should not change behavior in advance of the law in expectation of its passage. If they did, pre-adoption outcomes would already reflect part of the policy's effect, contaminating the baseline. The event-study leads also speak to this: coefficients close to zero in the years before adoption suggest little anticipatory response.
+
+Under these two assumptions, the Difference-in-Differences design provides a credible strategy for estimating the ATT. Their plausibility is examined empirically in the following sections; importantly, because some of the supporting evidence (the leads) is imprecise, the assumptions are treated as reasonable but not beyond question, and the results are interpreted with that caution in mind.
+
+### 3. Descriptive Statistics
+
+The dataset is a balanced panel of 50 U.S. states observed annually from 2000 to 2010 (11 years per state, 550 state-year observations). Of these, 21 states adopted a Castle Doctrine law at some point during the sample period, while 29 never did; the staggered timing of adoption is what the Difference-in-Differences design exploits.
+
+```{r summary-castle}
+# Create the log crime variables used in the analysis
+castle$l_assault  <- log(castle$assault)
+castle$l_burglary <- log(castle$burglary)
+castle$l_robbery  <- log(castle$robbery)
+
+# Variables to summarise, and the labels to display for them
+vars <- c("homicide", "l_homicide", "l_assault", "l_burglary", "l_robbery")
+labs <- c("Homicide Rate", "Log Homicide Rate",
+          "Log Assault Rate", "Log Burglary Rate", "Log Robbery Rate")
+
+# Compute each statistic for every variable (sapply applies the function to each name in turn)
+summary_table <- data.frame(
+  Variable = labs,
+  Mean = sapply(vars, function(v) mean(castle[[v]], na.rm = TRUE)),
+  SD   = sapply(vars, function(v) sd(castle[[v]],   na.rm = TRUE)),
+  Min  = sapply(vars, function(v) min(castle[[v]],  na.rm = TRUE)),
+  Max  = sapply(vars, function(v) max(castle[[v]],  na.rm = TRUE)),
+  row.names = NULL
+)
+
+# Round all numeric columns to 2 decimals
+summary_table[, 2:5] <- round(summary_table[, 2:5], 2)
+
+kable(summary_table)
+```
+**Table 2.1 Descriptive Statistics**
+
+Table 2.1 reports summary statistics for the homicide outcome and the three additional crime categories examined later. All four are measured as rates and analysed in logs, which compresses their right skew and lets effects be read in approximate percentage terms. Homicide rates vary considerably across states and years, and the other crime categories show similar dispersion, confirming there is enough variation across states and over time to identify policy effects.
+
+
+#### 3.1 Homicide Trends Over Time
+
+```{r homicide-plot,fig.align='center'}
+# Average log homicide rate by year, across all states
+castle %>%
+  group_by(year) %>%
+  summarise(mean_lhom = mean(l_homicide, na.rm = TRUE)) %>%
+  ggplot(aes(x = year, y = mean_lhom)) +
+  geom_line(linewidth = 1, color = "#C2185B") +
+  geom_point(size = 2, color = "#C2185B") +
+  scale_x_continuous(breaks = 2000:2010) +     # label every year on the x-axis
+  coord_cartesian(ylim = c(1.0, 1.7)) +        # widen y-axis so the trend isn't visually exaggerated
+  labs(x = "Year", y = "Average Log Homicide Rate") +
+  theme_minimal()
+```
+**Figure 2.1 Average Log Homicide Rate Over Time**
+
+Figure 2.1 shows the average log homicide rate across all states by year. It rose modestly to a peak around 2006–2007 and then declined through 2010. Because this raw trend pools treated and control states together, it cannot isolate the policy's effect on its own; it simply motivates the need for a control group, which the difference-in-differences design provides by netting out trends common to all states.
+
+
+### 4.Estimation
+
+To estimate the effect of castle doctrine laws on homicide rates, a Difference-in-Differences (DiD) framework is employed. The analysis is implemented in two ways. First, a transparent 2×2 DiD estimator compares changes in homicide rates between adopting and non-adopting states before and after the policy change. Second, an event-study specification is estimated to examine the dynamic effects of the law over time and to assess the plausibility of the parallel trends assumption. The event-study model includes both state and year fixed effects to account for time-invariant differences across states and common shocks affecting all states in a given year.
+
+#### 4.1 Difference-in-Differences Estimator
+
+Because Castle Doctrine laws were adopted in different years across states, there is no single "before" and "after" period that applies to every treated state at once. To compute a transparent difference-in-differences by hand, we therefore focus on the largest adoption cohort — the 13 states that adopted in 2007 — and compare them with the states that never adopted such laws during the sample period. The year 2007 is used as the common cut-off, so that the same pre- and post-treatment split applies to both groups. The difference-in-differences estimator compares how log homicide rates changed in treated states with how they changed in control states over the same period:
+
+$$
+DiD=
+(\bar Y_{T,Post}-\bar Y_{T,Pre})
+-
+(\bar Y_{C,Post}-\bar Y_{C,Pre})
+$$
+The first term measures the change in the treated group before and after 2007; the second measures the change in the control group over the same window. Subtracting the control change from the treated change removes any trend common to all states, so that what remains can be attributed to the policy under the Parallel Trends Assumption.
+
+```{r did-manual-table}
+adopt_year <- 2007
+
+# Find each adopting state's adoption year (its first year with post == 1).
+# States that never have post == 1 are the never-treated controls.
+adopt_info <- castle %>%
+  filter(post == 1) %>%
+  group_by(sid) %>%
+  summarise(adopt = min(year), .groups = "drop")
+
+never_treated <- setdiff(unique(castle$sid), adopt_info$sid)   # states that never adopt
+cohort_states <- adopt_info$sid[adopt_info$adopt == adopt_year]  # states adopting in 2007
+
+# Build the 2x2 sample: 2007 cohort + never-treated, with one common pre/post split at 2007
+d <- castle %>%
+  filter(sid %in% c(cohort_states, never_treated)) %>%
+  mutate(
+    group  = ifelse(sid %in% cohort_states, "Treated", "Control"),
+    period = ifelse(year >= adopt_year, "Post", "Pre")
+  )
+
+# Mean log homicide rate in each of the four group-by-period cells
+cell <- d %>%
+  group_by(group, period) %>%
+  summarise(mean_lhom = mean(l_homicide, na.rm = TRUE), .groups = "drop")
+
+# Helper to look up a single cell mean (group + period)
+g <- function(grp, per) cell$mean_lhom[cell$group == grp & cell$period == per]
+
+# DiD = (treated change over time) - (control change over time)
+did <- (g("Treated","Post") - g("Treated","Pre")) -
+       (g("Control","Post") - g("Control","Pre"))
+
+# Assemble the 2x2 table: group means, the treated-control difference, and the change over time
+tab <- data.frame(
+  Group = c("Treated (2007 cohort)", "Control (never treated)", "Difference (T - C)"),
+  Pre   = round(c(g("Treated","Pre"),  g("Control","Pre"),
+                  g("Treated","Pre")  - g("Control","Pre")),  3),
+  Post  = round(c(g("Treated","Post"), g("Control","Post"),
+                  g("Treated","Post") - g("Control","Post")), 3)
+)
+tab$Change <- round(tab$Post - tab$Pre, 3)
+
+kable(tab)
+```
+**Table 2.2 Difference-in-Differences calculation**
+Table 2.2 reports the four group-by-period means and their differences. The treated states' log homicide rate changed by the amount shown in the top row of the "Change" column, while the control states changed by the amount in the second row. The difference-in-differences estimate is the bottom-right entry of the table — the difference between these two changes — equal to 0.059. A positive value indicates that homicide rates rose in adopting states relative to never-adopting states after 2007, consistent with the hypothesis that Castle Doctrine laws increased rather than reduced lethal violence.
+This estimate should be read as a transparent illustration computed on a single adoption cohort rather than the definitive full-sample effect. It uses 13 of the 21 adopting states and therefore discards information from states adopting in other years. The event-study analysis in the next section uses the full sample and the staggered timing of adoption, and so provides a more complete assessment of the policy's effect and of the Parallel Trends Assumption.
+
+```{r did-plot,fig.align='center'}
+adopt_year <- 2007
+
+# Identify the 2007 adoption cohort and the never-treated states (same split as Table 2.2)
+adopt_info <- castle %>%
+  filter(post == 1) %>%
+  group_by(sid) %>%
+  summarise(adopt = min(year), .groups = "drop")
+
+never_treated <- setdiff(unique(castle$sid), adopt_info$sid)
+cohort_states <- adopt_info$sid[adopt_info$adopt == adopt_year]
+
+# Average log homicide rate by year for each group
+plot_data <- castle %>%
+  filter(sid %in% c(cohort_states, never_treated)) %>%
+  mutate(group = ifelse(sid %in% cohort_states,
+                        "Treated (2007 cohort)", "Control (never treated)")) %>%
+  group_by(year, group) %>%
+  summarise(homicide = mean(l_homicide, na.rm = TRUE), .groups = "drop")
+
+ggplot(plot_data, aes(year, homicide, color = group)) +
+  geom_vline(xintercept = adopt_year, linetype = "dashed", color = "grey50") +  # mark adoption year
+  geom_line(linewidth = 1.2) +
+  geom_point() +
+  labs(x = "Year", y = "Average Log Homicide Rate", color = "Group") +
+  theme_minimal()
+```
+**Figure 2.2 Homicide Trends in Treated and Control States**
+Figure 2.2 plots the average log homicide rate by year for the 2007 adoption cohort and the never-treated states, with the dashed line marking the 2007 adoption year. Two features stand out. First, treated states sit well above the controls in every year — their average log homicide rate is roughly half a log point higher throughout. This is a fixed level difference between the two groups, exactly the kind of time-invariant gap that the difference-in-differences design removes by construction, so it is not in itself a threat to identification. What matters is not the size of the gap but whether it stays stable over time.
+Second, in the years before 2007 the two series move broadly together: they rise and fall in step, so the distance between them is roughly constant over the pre-adoption period. After 2007 the control series falls faster than the treated series, so the gap widens slightly. That widening is the graphical version of the positive 2×2 estimate in Table 2.2 (0.059): homicide rates in adopting states declined less than in non-adopting states once the law took effect.
+
+```{r}
+# Headline difference-in-differences: two-way (state + year) fixed effects.
+# The coefficient on `post` (=1 when the Castle Doctrine law is in effect)
+# is the conventional TWFE estimate of the ATT.
+twfe <- lm(l_homicide ~ post + factor(sid) + factor(year), data = castle)
+
+# Standard errors clustered by state (within-state correlation over time)
+twfe_cl <- coeftest(twfe, vcov = vcovCL, cluster = ~ sid)
+
+# Pull out the treatment effect and build a 95% CI
+att_twfe <- twfe_cl["post", "Estimate"]
+se_twfe  <- twfe_cl["post", "Std. Error"]
+p_twfe   <- twfe_cl["post", "Pr(>|t|)"]
+ci_twfe  <- att_twfe + c(-1, 1) * 1.96 * se_twfe
+
+# Tidy one-row result table
+twfe_tab <- data.frame(
+  Estimate       = round(att_twfe, 3),
+  `Clustered SE` = round(se_twfe, 3),
+  `95% CI`       = sprintf("[%.3f, %.3f]", ci_twfe[1], ci_twfe[2]),
+  `p-value`      = format.pval(p_twfe, digits = 3, eps = 0.001),
+  check.names    = FALSE
+)
+kable(twfe_tab)
+```
+**Table 2.3 Two-way fixed-effects DiD estimate (full sample, state-clustered SE)**
+
+Table 2.3 reports the difference-in-differences estimate from the full sample using state and year fixed effects, with standard errors clustered by state. The estimated effect of Castle Doctrine adoption on log homicide rates is 0.069 (clustered SE 0.059), implying an increase of roughly 7 percent. The point estimate is positive, consistent in direction with the 2×2 result and the event study, but it is not statistically significant at conventional levels (p = 0.237), and the 95 percent confidence interval [−0.045, 0.184] includes zero. The full-sample evidence therefore points toward an increase in homicide following adoption, but the effect is too imprecisely estimated to rule out no effect. This is our single headline estimate; the event study below decomposes it into year-by-year effects.
+
+
+#### 4.2 Dynamic Treatment Effects
+```{r dynamiceffects-plot, fig.align='center'}
+# Event-study regression. lead/lag dummies mark years relative to each state's adoption.
+# lead1 (t = -1) is left out, so it becomes the reference period all others compare to.
+event_model <- lm(
+  l_homicide ~
+    lead5 + lead4 + lead3 + lead2 +
+    lag0 + lag1 + lag2 + lag3 + lag4 + lag5 +
+    factor(sid) + factor(year),
+  data = castle
+)
+
+# Re-compute the standard errors clustering by state, to allow within-state correlation
+clustered <- coeftest(event_model, vcov = vcovCL, cluster = ~ sid)
+
+# Keep only the lead/lag coefficients (drop the state and year fixed-effect rows)
+keep <- c("lead5","lead4","lead3","lead2",
+          "lag0","lag1","lag2","lag3","lag4","lag5")
+
+# Tidy into a table and build 95% CIs from the clustered SEs (estimate +/- 1.96*SE)
+event_results <- tidy(clustered) %>%
+  filter(term %in% keep) %>%
+  mutate(conf.low  = estimate - 1.96 * std.error,
+         conf.high = estimate + 1.96 * std.error)
+
+# Event time for the 10 estimated terms, in the same order as the formula above
+event_results$time <- c(-5, -4, -3, -2, 0, 1, 2, 3, 4, 5)
+
+# Add the reference period (t = -1) back as an explicit zero with no interval
+event_results <- rbind(
+  event_results,
+  data.frame(term = "ref", estimate = 0, std.error = NA,
+             statistic = NA, p.value = NA,
+             conf.low = 0, conf.high = 0, time = -1)
+)
+
+event_results <- event_results[order(event_results$time), ]  # sort by event time for plotting
+
+ggplot(event_results, aes(x = time, y = estimate)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(size = 3, color = "#C2185B") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                width = 0.2, color = "#C2185B") +
+  labs(x = "Years Relative to Adoption",
+       y = "Estimated Effect on Log Homicide Rate") +
+  theme_minimal()
+```
+**Figure 2.3 Dynamic Effects of Castle Doctrine Laws**
+
+To examine how the effect of the policy evolves over time, an event-study specification was estimated, with leads and lags defined relative to each state's year of adoption. The year before adoption (t = −1) is used as the reference period, so all coefficients are interpreted relative to it.
+
+Figure 2.3 plots the estimated coefficients and their 95 percent confidence intervals. None of the pre-adoption coefficients (the leads) is statistically significant at conventional levels, which is reassuring for the Parallel Trends Assumption: treated and control states were not on detectably different homicide paths before the law. That said, the estimates in the few years before adoption are mildly positive rather than exactly zero, so the pre-trends are broadly supportive but not perfectly flat. The absence of significant lead coefficients also provides little evidence of anticipation effects.
+
+After adoption, the lag coefficients are consistently positive, indicating that homicide rates rose in adopting states relative to controls once the policy took effect. Once the standard errors are clustered by state, however, the confidence intervals are wide and include zero in every post-adoption year, so the increase is not statistically significant at conventional levels. The estimates therefore point to a positive effect in direction but one that is imprecisely estimated. Because the positive coefficients appear only after treatment and not before, the pattern remains consistent with a causal interpretation, even if the evidence is statistically weak.
+
+The longer-horizon estimates (four to five years after adoption) are similar in size to the earlier ones but even less precise, as fewer states contribute to these periods. Overall, the event study is broadly consistent with the identifying assumptions of the difference-in-differences design, but — because the clustered confidence intervals are wide and the post-adoption estimates are not individually significant — the magnitude and timing should be read as indicative rather than definitive. The direction of the effect, a post-adoption increase in homicide, is nonetheless stable across the specifications used here.
+
+#### 4.3 Additional crime outcomes
+To examine whether the effects of Castle Doctrine laws extend beyond homicide, the same 2×2 difference-in-differences was applied to assault, robbery, and burglary, all measured in logs. The estimates are positive for all four crime categories, ranging from 0.026 (assault) to 0.059 (homicide), with burglary (0.054) close behind homicide and robbery (0.036) in between. No formal statistical inference is conducted for these additional outcomes, so the results are only suggestive. Nonetheless, the consistently positive sign across categories indicates that the increase in violence associated with Castle Doctrine laws may not be confined to homicide alone. 
+
+```{r}
+# Apply the same 2x2 DiD to the other crime categories (logged)
+castle$l_assault  <- log(castle$assault)
+castle$l_burglary <- log(castle$burglary)
+castle$l_robbery  <- log(castle$robbery)
+
+adopt_year <- 2007
+adopt_info <- castle %>% filter(post == 1) %>%
+  group_by(sid) %>% summarise(adopt = min(year), .groups = "drop")
+never_treated <- setdiff(unique(castle$sid), adopt_info$sid)
+cohort_states <- adopt_info$sid[adopt_info$adopt == adopt_year]
+
+d <- castle %>%
+  filter(sid %in% c(cohort_states, never_treated)) %>%
+  mutate(group  = ifelse(sid %in% cohort_states, "Treated", "Control"),
+         period = ifelse(year >= adopt_year, "Post", "Pre"))
+
+# Function computing the 2x2 DiD for one outcome variable
+did_2x2 <- function(outcome) {
+  m <- function(grp, per) mean(d[[outcome]][d$group == grp & d$period == per], na.rm = TRUE)
+  did <- (m("Treated","Post") - m("Treated","Pre")) -
+         (m("Control","Post") - m("Control","Pre"))
+  data.frame(DiD_Estimate = round(did, 3))
+}
+
+# Run it for all four crime outcomes and combine into one table
+results <- bind_rows(lapply(c("l_homicide","l_assault","l_burglary","l_robbery"), did_2x2))
+results$Outcome <- c("Log Homicide","Log Assault","Log Burglary","Log Robbery")
+
+kable(results[, c("Outcome","DiD_Estimate")],
+      col.names = c("Outcome", "DiD Estimate (2007 cohort)"))
+```
+**Table 2.4 Difference-in-Differences estimates**
+
+### 5. Interpretation and Critical Discussion
+
+Both the 2×2 estimate (Table 2.2) and the event study suggest that homicide rates rose after states adopted Castle Doctrine laws.The full-sample two-way fixed-effects estimate (Table 2.3) tells the same story: positive (0.069) but not statistically significant.The effect points in the same direction in both approaches, but it is not strong statistically, and whether it can be read as causal depends on the assumptions of the design.
+
+The biggest concern is omitted variable bias. States that pass these laws may differ from states that do not in ways that also affect homicide, such as politics, demographics, economic conditions, or other policies passed around the same time. A related worry is that states might pass these laws partly because crime is already rising, which would mean the relationship runs in both directions.
+
+Measurement error worries us less for homicide than for other crimes, because body counts are hard to hide, but cross-state reporting differences still exist.
+
+In terms of external validity, the results apply mainly to U.S. states between 2000 and 2010. The effect could be different in other countries or time periods.
+
+The findings are in line with Cheng and Hoekstra (2013), who also found that these laws increased homicide rates. Both of our approaches agree on a positive effect, but they say different things about precision. The 2×2 is a simple calculation with no formal test, while the event study, once its standard errors are clustered by state, gives wide confidence intervals that include zero. So the size of the effect is uncertain and depends on the choices made.
+
+Finally, two cautions. First, the result relies on the Parallel Trends Assumption, which cannot be checked directly. The event study is reassuring because the pre-adoption estimates are not significant, but they are slightly positive rather than flat. Second, because states adopted the law in different years, the two-way fixed-effects estimator may not recover a clean average effect: recent econometric work has shown that with staggered adoption it can place weight on comparisons between later and earlier adopters. Addressing this fully would require estimators beyond the scope of this course, so we treat our results as indicative and rely on the never-treated states as a transparent comparison group in the 2×2 analysis. For these reasons, the results are best seen as evidence that points toward a positive effect of Castle Doctrine laws on homicide, rather than as a precise measure of how large that effect is.
+
+
+# Use of AI Tools
+We used ChatGPT and Claude (Anthropic) throughout this project as coding and writing aids. This included debugging and improving R code (e.g., `stargazer` and `ggplot` formatting), identifying and correcting methodological problems (for example, fixing the difference-in-differences calculation and adding robust standard errors, an outlier sensitivity check, and a negative-binomial robustness model), and substantially revising the wording and structure of the written report for clarity. All analytical decisions and results were produced and verified by us, and we reviewed and take responsibility for the final text.
+
+* **ChatGPT.** (2026). *ChatGPT* (Version as of June 2026). [online] Available at: <https://chatgpt.com/>.
+* **Claude.ai.** (2026). *Claude* (Version as of June 2026). [online] Available at: <https://claude.ai/>.
+
+# Bibliography
+### Primary Literature & Textbooks
+* **Cheng, C. and Hoekstra, M.** (2013). Does Strengthening Self-Defense Law Deter Crime or Escalate Violence? *Journal of Human Resources*, 48(3), pp. 821–854. doi: <https://doi.org/10.3368/jhr.48.3.821>.
+* **Cunningham, S.** (2021). *Causal Inference: The Mixtape*. New Haven: Yale University Press. [online] Available at: <https://mixtape.scunning.com/09-difference_in_differences#john-snows-cholera-hypothesis>.
+* **Fair, R.C.** (1978). A Theory of Extramarital Affairs. *Journal of Political Economy*, 86(1), pp. 45–61. doi: <https://doi.org/10.1086/260646>.
+* **Zeileis, A. and Hothorn, T.** (2002). Diagnostic Checking in Regression Relationships. *R News*, 2(3), pp. 7–10. Available at: <https://CRAN.R-project.org/doc/Rnews/>.
+
+### R Packages
+* **Arel-Bundock, V.** (2022). modelsummary: Data and Model Summaries in R. *Journal of Statistical Software*, 103(1), pp. 1–23. doi: <https://doi.org/10.18637/jss.v103.i01>.
+* **Fox, J. and Weisberg, S.** (2019). *An R Companion to Applied Regression*. 3rd ed. Thousand Oaks, CA: Sage. Available at: <https://www.john-fox.ca/Companion/>.
+* **Hlavac, M.** (2022). *stargazer: Well-Formatted Regression and Summary Statistics Tables*. R package version 5.2.3. Available at: <https://CRAN.R-project.org/package=stargazer>.
+* **Huntington-Klein, N. and Barrett, M.** (2024). *causaldata: Example Data Sets for Causal Inference Textbooks*. R package version 0.1.4. doi: <https://doi.org/10.3214/CRAN.package.causaldata>.
+* **Shea, J.** (2024). *wooldridge: 115 Data Sets from "Introductory Econometrics: A Modern Approach, 7e" by Jeffrey M. Wooldridge*. R package version 1.4-4. doi: <https://doi.org/10.3214/CRAN.package.wooldridge>.
+* **Venables, W.N. and Ripley, B.D.** (2002). *Modern Applied Statistics with S*. 4th ed. New York: Springer. ISBN: 0-387-95457-0.
+* **Zeileis, A.** (2004). Econometric Computing with HC and HAC Covariance Matrix Estimators. *Journal of Statistical Software*, 11(10), pp. 1–17. doi: <https://doi.org/10.18637/jss.v011.i10>.
+* **Zeileis, A., Köll, S. and Graham, N.** (2020). Various Versatile Variances: An Object-Oriented Implementation of Clustered Covariances in R. *Journal of Statistical Software*, 95(1), pp. 1–36. doi: <https://doi.org/10.18637/jss.v095.i01>.
