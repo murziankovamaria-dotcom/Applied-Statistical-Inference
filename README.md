@@ -54,23 +54,23 @@ Part II – Causal Inference
 ## Results
 
 ## Difference-in-Differences
-![Difference-in-Differences](figures/did-plot.pdf)
+![Difference-in-Differences](figures/did-plot.png)
 
 The Difference-in-Differences model estimates the average treatment effect of castle doctrine laws on homicide rates by comparing treated and control states before and after policy implementation.
 
 ## Event Study
-![Event Study](figures/dynamiceffects-plot.pdf)
+![Event Study](figures/dynamiceffects-plot.png)
 
 The Event Study estimates treatment effects over time and provides evidence on the dynamics of the policy impact while helping assess the parallel trends assumption.
 
 
 ## Regression Diagnostics
-![Regression Diagnostics](figures/residual-diagnostics.pdf)
+![Regression Diagnostics](figures/residual-diagnostics.png)
 Residual diagnostics were used to assess model assumptions and evaluate goodness of fit.
 
 
 ## Exploratory Data Analysis
-![Correlation Heatmap](figures/correlation-heatmap.pdf)
+![Correlation Heatmap](figures/correlation-heatmap.png)
 Correlation analysis was performed to explore relationships among explanatory variables prior to model estimation.
 
 ## Technologies Used
